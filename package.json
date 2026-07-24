@@ -1,5 +1,5 @@
 {
-  "name": "mapeador-mcp",
+  "name": "mapeamento-mcp",
   "version": "0.1.0",
   "private": true,
   "description": "Mapeador autonomo de aplicacoes web (Playwright + MCP) e gerador de testes de regressao",
