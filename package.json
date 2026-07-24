@@ -1,0 +1,42 @@
+{
+  "name": "mapeador-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mapeador autonomo de aplicacoes web (Playwright + MCP) e gerador de testes de regressao",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "crawl": "tsx src/cli/index.ts crawl",
+    "compile": "tsx src/cli/index.ts compile"
+  },
+  "dependencies": {
+    "@faker-js/faker": "10.5.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "better-sqlite3": "13.0.1",
+    "commander": "15.0.0",
+    "pino": "10.3.1",
+    "playwright": "1.61.1",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/mcp": "0.0.78",
+    "@playwright/test": "1.61.1",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "26.1.1",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.1": true,
+    "esbuild@0.28.1": true
+  }
+}
