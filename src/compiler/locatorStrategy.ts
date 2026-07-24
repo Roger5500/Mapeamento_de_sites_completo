@@ -14,9 +14,17 @@
  * `.first()` e um default razoavel para testes de regressao - o tradeoff e
  * nao conseguir distinguir "cliquei no link do header" de "cliquei no do
  * footer" como testes separados, o que nao importa pra maioria dos casos.
+ *
+ * Sem `exact: true` (proposital): candidatos com nome DERIVADO de conteudo
+ * aninhado (ver crawler/accessibleName.ts - ex: cards de produto que o
+ * @playwright/mcp reporta sem nome direto) usam so uma PARTE do nome
+ * acessivel real que o Playwright de fato computa (ex: nosso "Grey jacket"
+ * vs o real "Grey jacket Grey jacket £55.00"). Match exato quebraria esses
+ * casos; substring (o default do Playwright) resolve os dois sem precisar
+ * rastrear "nome direto vs derivado" ate aqui.
  */
 export function buildRoleLocatorCode(role: string, name: string): string {
-  return `page.getByRole(${jsString(role)}, { name: ${jsString(name)}, exact: true }).first()`;
+  return `page.getByRole(${jsString(role)}, { name: ${jsString(name)} }).first()`;
 }
 
 function jsString(value: string): string {

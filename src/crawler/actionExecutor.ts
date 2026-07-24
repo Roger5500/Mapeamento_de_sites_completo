@@ -1,6 +1,7 @@
 import type { AccessibilityNode } from "../graph/nodeIdentity.js";
 import type { McpTools } from "../mcp/tools.js";
 import { detectAndDismissOverlay } from "../safety/overlayAutoHeal.js";
+import { resolveAccessibleName } from "./accessibleName.js";
 import type { ElementCandidate } from "./frontier.js";
 
 export class StaleElementError extends Error {
@@ -17,9 +18,16 @@ export class ActionFailedError extends Error {
   }
 }
 
+/**
+ * Compara pelo nome EFETIVO (direto ou derivado do conteudo aninhado - ver
+ * accessibleName.ts), nao so pelo `node.name` cru - senao um candidato cujo
+ * nome foi derivado na descoberta (ex: card de produto sem nome direto)
+ * nunca seria reencontrado aqui, porque a snapshot fresca tambem nao traz
+ * esse nome diretamente.
+ */
 function findMatchingNode(tree: AccessibilityNode, role: string, name: string): AccessibilityNode | undefined {
   function walk(node: AccessibilityNode): AccessibilityNode | undefined {
-    if (node.role === role && node.name === name) return node;
+    if (node.role === role && resolveAccessibleName(node) === name) return node;
     for (const child of node.children ?? []) {
       const found = walk(child);
       if (found) return found;
@@ -31,8 +39,10 @@ function findMatchingNode(tree: AccessibilityNode, role: string, name: string): 
 
 export interface ExecuteActionInput {
   candidate: ElementCandidate;
-  /** Presente quando role for textbox/searchbox/combobox - dispara `type()` em vez de `click()`. */
+  /** Presente quando role for textbox/searchbox - dispara `type()` em vez de `click()`. */
   typeValue?: string;
+  /** Presente quando o candidato e um combobox/listbox com opcoes reais - dispara `selectOption()`. */
+  selectValues?: string[];
 }
 
 export interface ExecuteActionResult {
@@ -53,7 +63,7 @@ export interface ExecuteActionResult {
  * antes de valer a complexidade extra (ver plano, secao "Proximos passos").
  */
 export async function executeWithAutoHeal(tools: McpTools, input: ExecuteActionInput, maxRetries = 1): Promise<ExecuteActionResult> {
-  const { candidate, typeValue } = input;
+  const { candidate, typeValue, selectValues } = input;
   let overlayDismissed = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -65,7 +75,9 @@ export async function executeWithAutoHeal(tools: McpTools, input: ExecuteActionI
     }
 
     try {
-      if (typeValue !== undefined) {
+      if (selectValues !== undefined) {
+        await tools.selectOption(ref, `${candidate.role} "${candidate.name}"`, selectValues);
+      } else if (typeValue !== undefined) {
         await tools.type(ref, `${candidate.role} "${candidate.name}"`, typeValue);
       } else {
         await tools.click(ref, `${candidate.role} "${candidate.name}"`);

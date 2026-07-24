@@ -116,9 +116,16 @@ function buildNode(entry: YamlEntry): AccessibilityNode {
     throw new Error(`snapshot: esperado exatamente 1 chave por item da arvore, recebido ${keys.length} (${keys.join(", ")})`);
   }
   const label = keys[0]!;
-  const value = entry[label]!;
+  const value = entry[label];
   const { role, name, attributes } = parseLabel(label);
   const node: AccessibilityNode = { role, name, attributes, children: [] };
+
+  if (value === null || value === undefined) {
+    // "role [attrs]:" seguido de bloco vazio (sem filhos, sem texto) - o YAML
+    // parseia o valor como null. Nao e erro, so um no sem conteudo aninhado
+    // (observado ao vivo: ex. um combobox momentaneamente sem <option>).
+    return node;
+  }
 
   if (typeof value === "string") {
     // Mapeamento de 1 chave cujo valor e escalar direto (nao uma lista) -

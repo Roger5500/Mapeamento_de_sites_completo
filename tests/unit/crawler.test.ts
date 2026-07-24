@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { executeWithAutoHeal } from "../../src/crawler/actionExecutor.js";
 import { generateFieldValue } from "../../src/crawler/fakerFill.js";
-import type { ElementCandidate } from "../../src/crawler/frontier.js";
+import { extractInteractiveElements, type ElementCandidate } from "../../src/crawler/frontier.js";
 import { computePriority } from "../../src/crawler/priority.js";
 import { captureNetworkBaseline, validateAfterAction } from "../../src/crawler/validator.js";
+import type { AccessibilityNode } from "../../src/graph/nodeIdentity.js";
 import type { NetworkRequestInfo } from "../../src/mcp/types.js";
 
 describe("computePriority", () => {
@@ -128,5 +130,95 @@ describe("validator (captureNetworkBaseline + validateAfterAction)", () => {
     const baseline = await captureNetworkBaseline(tools);
     const result = await validateAfterAction(tools, baseline);
     expect(result.consoleErrors).toEqual([{ type: "error", text: "TypeError: x is not a function" }]);
+  });
+});
+
+describe("extractInteractiveElements", () => {
+  it("descobre um card de produto sem nome direto usando o nome derivado do heading aninhado", () => {
+    const tree: AccessibilityNode = {
+      role: "root",
+      attributes: {},
+      children: [
+        {
+          role: "link",
+          attributes: { ref: "e54" },
+          children: [
+            { role: "img", name: "Grey jacket", attributes: {}, children: [] },
+            { role: "heading", name: "Grey jacket", attributes: {}, children: [] },
+          ],
+        },
+      ],
+    };
+    const candidates = extractInteractiveElements(tree);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ role: "link", name: "Grey jacket" });
+  });
+
+  it("preenche 'options' para um combobox com filhos 'option' nomeados", () => {
+    const tree: AccessibilityNode = {
+      role: "root",
+      attributes: {},
+      children: [
+        {
+          role: "combobox",
+          name: "Variante",
+          attributes: { ref: "e67" },
+          children: [
+            { role: "option", name: "Grey jacket", attributes: {}, children: [] },
+            { role: "option", name: "Noir jacket", attributes: {}, children: [] },
+          ],
+        },
+      ],
+    };
+    const candidates = extractInteractiveElements(tree);
+    expect(candidates[0]?.options).toEqual(["Grey jacket", "Noir jacket"]);
+  });
+
+  it("nao preenche 'options' para um textbox comum", () => {
+    const tree: AccessibilityNode = {
+      role: "root",
+      attributes: {},
+      children: [{ role: "textbox", name: "Search", attributes: {}, children: [] }],
+    };
+    const candidates = extractInteractiveElements(tree);
+    expect(candidates[0]?.options).toBeUndefined();
+  });
+});
+
+describe("executeWithAutoHeal - selectValues", () => {
+  function comboboxTree(ref: string): AccessibilityNode {
+    return {
+      role: "root",
+      attributes: {},
+      children: [
+        {
+          role: "combobox",
+          name: "Variante",
+          attributes: { ref },
+          children: [{ role: "option", name: "Grey jacket", attributes: {}, children: [] }],
+        },
+      ],
+    };
+  }
+
+  it("chama tools.selectOption (nao click/type) quando selectValues esta presente", async () => {
+    const calls: string[] = [];
+    const tools = {
+      snapshot: async () => ({ url: "https://x.test/", title: "X", tree: comboboxTree("e67") }),
+      click: async () => {
+        calls.push("click");
+      },
+      type: async () => {
+        calls.push("type");
+      },
+      selectOption: async (ref: string, _element: string, values: string[]) => {
+        calls.push(`selectOption:${ref}:${values.join(",")}`);
+      },
+    } as unknown as Parameters<typeof executeWithAutoHeal>[0];
+
+    const candidate: ElementCandidate = { role: "combobox", name: "Variante", attributes: {} };
+    await executeWithAutoHeal(tools, { candidate, selectValues: ["Grey jacket"] });
+
+    expect(calls).toEqual(["selectOption:e67:Grey jacket"]);
   });
 });

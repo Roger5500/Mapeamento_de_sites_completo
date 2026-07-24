@@ -1,4 +1,5 @@
 import type { AccessibilityNode } from "../graph/nodeIdentity.js";
+import { resolveAccessibleName } from "./accessibleName.js";
 import { FrontierRepository, type FrontierRow } from "../graph/repository.js";
 
 /** Elemento interativo extraido da arvore de acessibilidade, ainda nao filtrado pelos guards. */
@@ -6,6 +7,8 @@ export interface ElementCandidate {
   role: string;
   name: string;
   attributes: Record<string, string>;
+  /** Preenchido para combobox/listbox com filhos `option` reais - ver orchestrator.ts. */
+  options?: string[];
 }
 
 const INTERACTIVE_ROLES = new Set([
@@ -14,6 +17,7 @@ const INTERACTIVE_ROLES = new Set([
   "textbox",
   "searchbox",
   "combobox",
+  "listbox",
   "checkbox",
   "radio",
   "menuitem",
@@ -22,19 +26,35 @@ const INTERACTIVE_ROLES = new Set([
   "option",
 ]);
 
+const OPTION_HOLDER_ROLES = new Set(["combobox", "listbox"]);
+
+function extractOptionNames(node: AccessibilityNode): string[] | undefined {
+  if (!OPTION_HOLDER_ROLES.has(node.role)) return undefined;
+  const names = (node.children ?? [])
+    .filter((child) => child.role === "option")
+    .map((child) => child.name?.trim())
+    .filter((name): name is string => Boolean(name));
+  return names.length > 0 ? names : undefined;
+}
+
 /**
- * Extrai candidatos interativos da arvore. Elementos interativos sem nome
- * acessivel (icone sem aria-label, bug de acessibilidade da propria
- * aplicacao) sao descartados aqui - sem nome nao ha como construir um
- * locator `getByRole(role, {name})` estavel nem checar a blacklist contra
- * o nome, e o ref efemero da snapshot nao serve como identidade durave.
+ * Extrai candidatos interativos da arvore. O nome usado e o "efetivo"
+ * (direto ou derivado do conteudo aninhado - ver accessibleName.ts), pra
+ * nao descartar elementos como cards de produto cujo nome so o
+ * @playwright/mcp omite. Elementos sem NENHUM nome (nem direto nem
+ * derivavel - ex: icone sem aria-label e sem texto/heading proximo) ainda
+ * sao descartados aqui, ja que sem nome nao ha como construir um locator
+ * `getByRole(role, {name})` estavel nem checar a blacklist contra o nome.
  */
 export function extractInteractiveElements(tree: AccessibilityNode): ElementCandidate[] {
   const candidates: ElementCandidate[] = [];
 
   function walk(node: AccessibilityNode): void {
-    if (INTERACTIVE_ROLES.has(node.role) && node.name && node.name.trim().length > 0) {
-      candidates.push({ role: node.role, name: node.name, attributes: node.attributes ?? {} });
+    if (INTERACTIVE_ROLES.has(node.role)) {
+      const name = resolveAccessibleName(node);
+      if (name) {
+        candidates.push({ role: node.role, name, attributes: node.attributes ?? {}, options: extractOptionNames(node) });
+      }
     }
     for (const child of node.children ?? []) walk(child);
   }

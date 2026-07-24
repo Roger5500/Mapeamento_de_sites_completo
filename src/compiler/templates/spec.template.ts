@@ -40,6 +40,16 @@ function parseInputValue(inputValueJson: string | null): string {
   }
 }
 
+function parseInputValueArray(inputValueJson: string | null): string[] {
+  if (!inputValueJson) return [];
+  try {
+    const value: unknown = JSON.parse(inputValueJson);
+    return Array.isArray(value) ? value.map(String) : [String(value)];
+  } catch {
+    return [];
+  }
+}
+
 function buildStepAssertions(edge: CompilerEdge, nodesById: ReadonlyMap<string, SpecNodeInfo>, options: BuildSpecFileOptions): string[] {
   const toNode = nodesById.get(edge.toNodeId);
   if (!toNode) return [];
@@ -64,13 +74,26 @@ function buildStepAssertions(edge: CompilerEdge, nodesById: ReadonlyMap<string, 
   return lines;
 }
 
+/**
+ * `selectOption` usa `{ label }` (casa pelo texto visivel da option), nao a
+ * string crua - o nome que capturamos vem do nome acessivel da option (texto
+ * exibido), que nem sempre e igual ao atributo `value` do HTML real.
+ */
+function buildActionLine(edge: CompilerEdge, locator: string): string {
+  if (edge.actionType === "select_option") {
+    const values = parseInputValueArray(edge.inputValueJson);
+    const optionsCode = values.map((value) => `{ label: ${jsString(value)} }`).join(", ");
+    return `    await ${locator}.selectOption([${optionsCode}]);`;
+  }
+  if (edge.actionType === "type") {
+    return `    await ${locator}.fill(${jsString(parseInputValue(edge.inputValueJson))});`;
+  }
+  return `    await ${locator}.click();`;
+}
+
 function buildStepCode(edge: CompilerEdge, nodesById: ReadonlyMap<string, SpecNodeInfo>, options: BuildSpecFileOptions): string {
   const locator = buildRoleLocatorCode(edge.elementRole, edge.elementAccessibleName);
-  const actionLine =
-    edge.actionType === "type"
-      ? `    await ${locator}.fill(${jsString(parseInputValue(edge.inputValueJson))});`
-      : `    await ${locator}.click();`;
-
+  const actionLine = buildActionLine(edge, locator);
   const assertions = buildStepAssertions(edge, nodesById, options);
   return [actionLine, ...assertions].join("\n");
 }

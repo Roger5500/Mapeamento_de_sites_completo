@@ -13,7 +13,7 @@ import { extractInteractiveElements, Frontier, type ElementCandidate } from "./f
 import { computePriority } from "./priority.js";
 import { captureNetworkBaseline, validateAfterAction } from "./validator.js";
 
-const FORM_FIELD_ROLES = new Set(["textbox", "searchbox", "combobox"]);
+const FORM_FIELD_ROLES = new Set(["textbox", "searchbox", "combobox", "listbox"]);
 
 /**
  * Aresta "leve" usada apenas para recalcular o caminho de replay do backtrack -
@@ -31,6 +31,16 @@ function parseInputValue(inputValueJson: string | null): string {
     return typeof value === "string" ? value : String(value);
   } catch {
     return "";
+  }
+}
+
+function parseInputValueArray(inputValueJson: string | null): string[] {
+  if (!inputValueJson) return [];
+  try {
+    const value: unknown = JSON.parse(inputValueJson);
+    return Array.isArray(value) ? value.map(String) : [String(value)];
+  } catch {
+    return [];
   }
 }
 
@@ -125,16 +135,27 @@ export class Orchestrator {
           }
         }
 
-        const candidate: ElementCandidate = {
-          role: frontierRow.element_role,
-          name: frontierRow.element_accessible_name,
-          attributes: {},
-        };
+        const candidate = await this.resolveCandidateForExecution(frontierRow.element_role, frontierRow.element_accessible_name);
+        const hasOptions = (candidate.options?.length ?? 0) > 0;
         const isFormField = FORM_FIELD_ROLES.has(candidate.role);
-        const typeValue = isFormField ? generateFieldValue(candidate, { locale: this.site.fakerLocale }) : undefined;
+
+        let actionType: string;
+        let typeValue: string | undefined;
+        let selectValues: string[] | undefined;
+        if (hasOptions) {
+          // Dropdown com opcoes reais: escolhe a primeira, como um usuario real selecionando
+          // uma variante existente, em vez de digitar texto livre num <select>.
+          selectValues = [candidate.options![0]!];
+          actionType = "select_option";
+        } else if (isFormField) {
+          typeValue = generateFieldValue(candidate, { locale: this.site.fakerLocale });
+          actionType = "type";
+        } else {
+          actionType = "click";
+        }
 
         const baseline = await captureNetworkBaseline(this.session.tools);
-        const executeInput: ExecuteActionInput = { candidate, typeValue };
+        const executeInput: ExecuteActionInput = { candidate, typeValue, selectValues };
 
         try {
           await executeWithAutoHeal(this.session.tools, executeInput);
@@ -153,10 +174,10 @@ export class Orchestrator {
           runId: this.runId,
           fromNodeId: currentNodeId,
           toNodeId,
-          actionType: isFormField ? "type" : "click",
+          actionType,
           elementRole: candidate.role,
           elementAccessibleName: candidate.name,
-          inputValueJson: typeValue !== undefined ? JSON.stringify(typeValue) : null,
+          inputValueJson: selectValues !== undefined ? JSON.stringify(selectValues) : typeValue !== undefined ? JSON.stringify(typeValue) : null,
           networkOk: validation.networkOk,
           consoleErrorsJson: validation.consoleErrors.length > 0 ? JSON.stringify(validation.consoleErrors) : null,
           stateChanged: toNodeId !== currentNodeId,
@@ -204,13 +225,33 @@ export class Orchestrator {
       await this.session.tools.navigate(this.site.baseUrl);
       for (const edge of path.edges) {
         const candidate: ElementCandidate = { role: edge.elementRole, name: edge.elementAccessibleName, attributes: {} };
-        const typeValue = edge.actionType === "type" ? parseInputValue(edge.inputValueJson) : undefined;
-        await executeWithAutoHeal(this.session.tools, { candidate, typeValue });
+        if (edge.actionType === "select_option") {
+          await executeWithAutoHeal(this.session.tools, { candidate, selectValues: parseInputValueArray(edge.inputValueJson) });
+        } else {
+          const typeValue = edge.actionType === "type" ? parseInputValue(edge.inputValueJson) : undefined;
+          await executeWithAutoHeal(this.session.tools, { candidate, typeValue });
+        }
       }
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Re-resolve um candidato (role+nome) numa snapshot fresca antes de decidir
+   * a acao. Necessario porque a fronteira persistida em SQLite so guarda
+   * role/nome/prioridade (nao `options`) - sem isso, um combobox descoberto
+   * com opcoes reais "esqueceria" delas ao ser desenfileirado depois, e
+   * seria tratado como campo de texto livre por engano.
+   */
+  private async resolveCandidateForExecution(role: string, name: string): Promise<ElementCandidate> {
+    const fallback: ElementCandidate = { role, name, attributes: {} };
+    if (!FORM_FIELD_ROLES.has(role)) return fallback;
+
+    const snap = await this.session.tools.snapshot();
+    const fresh = extractInteractiveElements(snap.tree).find((c) => c.role === role && c.name === name);
+    return fresh ?? fallback;
   }
 
   private candidateKey(nodeId: string, candidate: ElementCandidate): string {

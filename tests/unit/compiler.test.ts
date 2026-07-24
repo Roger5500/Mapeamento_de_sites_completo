@@ -12,7 +12,7 @@ import { writeSpecFiles } from "../../src/compiler/writeSpecFiles.js";
 describe("locatorStrategy.buildRoleLocatorCode", () => {
   it("gera codigo getByRole valido com nome escapado corretamente", () => {
     const code = buildRoleLocatorCode("button", 'Salvar "rascunho"');
-    expect(code).toBe('page.getByRole("button", { name: "Salvar \\"rascunho\\"", exact: true }).first()');
+    expect(code).toBe('page.getByRole("button", { name: "Salvar \\"rascunho\\"" }).first()');
   });
 });
 
@@ -176,9 +176,32 @@ describe("spec.template.buildSpecFile", () => {
 
     expect(content).toContain('import { test, expect } from "@playwright/test";');
     expect(content).toContain('test.describe("catalog"');
-    expect(content).toContain('page.getByRole("link", { name: "Catalogo", exact: true }).first().click()');
+    expect(content).toContain('page.getByRole("link", { name: "Catalogo" }).first().click()');
     expect(content).toContain("await expect(page).toHaveURL(");
-    expect(content).toContain('page.getByRole("heading", { name: "Nosso Catalogo", exact: true }).first()).toBeVisible()');
+    expect(content).toContain('page.getByRole("heading", { name: "Nosso Catalogo" }).first()).toBeVisible()');
+  });
+
+  it("gera .selectOption({label}) para uma aresta select_option, em vez de .click()/.fill()", () => {
+    const selectEdge: CompilerEdge = {
+      fromNodeId: "root",
+      toNodeId: "catalog",
+      actionType: "select_option",
+      elementRole: "combobox",
+      elementAccessibleName: "Variante",
+      inputValueJson: JSON.stringify(["Grey jacket"]),
+    };
+    const content = buildSpecFile({
+      featureName: "catalog",
+      paths: [{ targetNodeId: "catalog", feature: "catalog", edges: [selectEdge] }],
+      nodesById: specNodesById,
+      volatilePatterns: [],
+      volatileSelectors: [],
+      expectedConsoleErrors: [],
+      baseUrl: "https://example.com/",
+    });
+
+    expect(content).toContain('page.getByRole("combobox", { name: "Variante" }).first().selectOption([{ label: "Grey jacket" }])');
+    expect(content).not.toContain(".fill(");
   });
 
   it("gera codigo TypeScript sintaticamente valido (verificado via new Function apos strip de types)", () => {
